@@ -1,9 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase configuration - Replace these with your actual Supabase project keys
-// Get these from: https://app.supabase.com → Project Settings → API
-const SUPABASE_URL = 'https://dijsywxquejkdmcfbodj.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_wsihYNTvshqAKIxQNKiRAw_CipPpLoH';
+// Supabase configuration via Vite environment variables
+// Set in .env.local for local dev and in Netlify environment variables for production.
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? '').trim();
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error('Missing Supabase environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
+}
 
 // Initialize Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
