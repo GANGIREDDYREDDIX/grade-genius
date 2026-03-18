@@ -34,6 +34,8 @@
     --border: 214 32% 91%;
     --input: 214 32% 91%;
     --ring: 239 84% 67%;
+    --grid-line: 220 32% 88%;
+    --grid-glow: 239 84% 67%;
 
     --radius: 0.75rem;
 
@@ -78,6 +80,8 @@
     --border: 217 33% 17%;
     --input: 217 33% 17%;
     --ring: 239 84% 67%;
+    --grid-line: 220 20% 17%;
+    --grid-glow: 239 84% 67%;
 
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
@@ -98,5 +102,241 @@
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', sans-serif;
+    background-image:
+      radial-gradient(circle at 10% 0%, hsl(var(--grid-glow) / 0.18), transparent 34%),
+      radial-gradient(circle at 88% 18%, hsl(210 100% 60% / 0.12), transparent 30%),
+      repeating-linear-gradient(0deg, hsl(var(--grid-line) / 0.62) 0 1px, transparent 1px 42px),
+      repeating-linear-gradient(90deg, hsl(var(--grid-line) / 0.62) 0 1px, transparent 1px 42px),
+      repeating-linear-gradient(0deg, hsl(var(--grid-line) / 0.9) 0 1px, transparent 1px 210px),
+      repeating-linear-gradient(90deg, hsl(var(--grid-line) / 0.9) 0 1px, transparent 1px 210px);
+    background-attachment: fixed;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.99);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes gradient-shift {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  @keyframes cinematic-float {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(0, -14px, 0) scale(1.04);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  @keyframes cinematic-breathe {
+    0%,
+    100% {
+      box-shadow: 0 12px 40px -24px hsl(var(--primary) / 0.55);
+      border-color: hsl(var(--border) / 0.7);
+    }
+    50% {
+      box-shadow: 0 18px 54px -26px hsl(var(--primary) / 0.65);
+      border-color: hsl(var(--primary) / 0.35);
+    }
+  }
+
+  @keyframes cinematic-sheen {
+    0% {
+      transform: translateX(-120%);
+      opacity: 0;
+    }
+    18% {
+      opacity: 0.28;
+    }
+    42% {
+      opacity: 0.14;
+    }
+    100% {
+      transform: translateX(220%);
+      opacity: 0;
+    }
+  }
+
+  @keyframes sun-pop {
+    0% {
+      transform: scale(0.62) rotate(-32deg);
+      opacity: 0.4;
+      filter: drop-shadow(0 0 0 hsl(40 100% 55% / 0));
+    }
+    60% {
+      transform: scale(1.18) rotate(10deg);
+      opacity: 1;
+      filter: drop-shadow(0 0 7px hsl(40 100% 55% / 0.7));
+    }
+    100% {
+      transform: scale(1) rotate(0deg);
+      opacity: 1;
+      filter: drop-shadow(0 0 0 hsl(40 100% 55% / 0));
+    }
+  }
+
+  @keyframes moon-pop {
+    0% {
+      transform: scale(0.62) rotate(28deg);
+      opacity: 0.4;
+      filter: drop-shadow(0 0 0 hsl(250 100% 75% / 0));
+    }
+    60% {
+      transform: scale(1.16) rotate(-8deg);
+      opacity: 1;
+      filter: drop-shadow(0 0 7px hsl(250 100% 75% / 0.7));
+    }
+    100% {
+      transform: scale(1) rotate(0deg);
+      opacity: 1;
+      filter: drop-shadow(0 0 0 hsl(250 100% 75% / 0));
+    }
+  }
+
+  @keyframes grade-change-flash {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0.35);
+      border-color: hsl(var(--border));
+      background-color: hsl(var(--background));
+    }
+    45% {
+      transform: scale(1.03);
+      box-shadow: 0 0 0 6px hsl(var(--primary) / 0.16);
+      border-color: hsl(var(--primary) / 0.6);
+      background-color: hsl(var(--primary) / 0.12);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+      border-color: hsl(var(--border));
+      background-color: hsl(var(--background));
+    }
+  }
+
+  .animate-fade-up {
+    animation: fade-up 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-gradient {
+    background-size: 220% 220%;
+    animation: gradient-shift 8s ease infinite;
+  }
+
+  .cinematic-orb {
+    animation: cinematic-float 12s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .cinematic-panel {
+    position: relative;
+    overflow: hidden;
+    animation: cinematic-breathe 6.8s ease-in-out infinite;
+  }
+
+  .cinematic-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 42%;
+    transform: translateX(-120%);
+    background: linear-gradient(108deg, transparent 0%, hsl(var(--primary) / 0.2) 50%, transparent 100%);
+    pointer-events: none;
+    animation: cinematic-sheen 6.6s ease-in-out infinite;
+  }
+
+  .cinematic-title {
+    text-shadow: 0 0 22px hsl(var(--primary) / 0.2);
+    letter-spacing: -0.02em;
+  }
+
+  .cinematic-chip {
+    box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.18), 0 9px 26px -18px hsl(var(--primary) / 0.5);
+  }
+
+  .cinematic-row {
+    transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1), border-color 240ms ease, background-color 240ms ease;
+  }
+
+  .cinematic-row:hover {
+    transform: translateY(-2px) scale(1.002);
+    border-color: hsl(var(--primary) / 0.3);
+  }
+
+  .theme-icon {
+    transform-origin: center;
+  }
+
+  .theme-icon-sun-anim {
+    animation: sun-pop 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .theme-icon-moon-anim {
+    animation: moon-pop 540ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .grade-changed-flash {
+    animation: grade-change-flash 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .grade-modified {
+    border-color: hsl(45 96% 52% / 0.88) !important;
+    background-color: hsl(45 100% 52% / 0.18) !important;
+    box-shadow: 0 0 0 1px hsl(45 96% 52% / 0.35) inset;
+  }
+
+  .dark .grade-modified {
+    border-color: hsl(45 96% 60% / 0.88) !important;
+    background-color: hsl(45 100% 60% / 0.2) !important;
+    box-shadow: 0 0 0 1px hsl(45 96% 60% / 0.4) inset;
+  }
+
+  .hover-lift {
+    transition: transform 200ms ease, box-shadow 240ms ease;
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-up,
+    .animate-gradient,
+    .hover-lift,
+    .cinematic-orb,
+    .cinematic-panel,
+    .cinematic-panel::after,
+    .cinematic-row,
+    .theme-icon-sun-anim,
+    .theme-icon-moon-anim,
+    .grade-changed-flash {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+      filter: none !important;
+    }
   }
 }

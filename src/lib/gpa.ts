@@ -1,10 +1,18 @@
-export const GRADE_MAP: Record<string, number> = {
+export const GRADE_MAP: Record<string, number | null> = {
   "O": 10,
   "A+": 9,
   "A": 8,
   "B+": 7,
   "B": 6,
   "C": 5,
+  "D": 4,
+  "E": 0,
+  "F": 0,
+  "I": null,
+  "M": null,
+  "R": null,
+  "S": null,
+  "U": null,
 };
 
 export const GRADES = Object.keys(GRADE_MAP);
@@ -41,7 +49,7 @@ export function calculateTGPA(subjects: Subject[]): { tgpa: number; totalCredits
   for (const s of subjects) {
     const credits = parseFloat(s.credits);
     const gradePoint = GRADE_MAP[s.grade];
-    if (!s.name.trim() || isNaN(credits) || credits <= 0 || gradePoint === undefined) continue;
+    if (!s.name.trim() || isNaN(credits) || credits < 0 || gradePoint === undefined || gradePoint === null) continue;
     totalWeighted += credits * gradePoint;
     totalCredits += credits;
   }
@@ -61,7 +69,7 @@ export function calculateCGPA(semesters: Semester[]): { cgpa: number; totalCredi
     for (const s of sem.subjects) {
       const credits = parseFloat(s.credits);
       const gradePoint = GRADE_MAP[s.grade];
-      if (!s.name.trim() || isNaN(credits) || credits <= 0 || gradePoint === undefined) continue;
+      if (!s.name.trim() || isNaN(credits) || credits < 0 || gradePoint === undefined || gradePoint === null) continue;
       totalWeighted += credits * gradePoint;
       totalCredits += credits;
     }
@@ -77,13 +85,15 @@ export function calculateCGPA(semesters: Semester[]): { cgpa: number; totalCredi
 const STORAGE_KEY = "gpa-calculator-data";
 
 export function loadSemesters(): Semester[] {
+  // Always start fresh on page load/refresh.
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
   return [createSemester(1)];
 }
 
-export function saveSemesters(semesters: Semester[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(semesters));
+export function saveSemesters(_semesters: Semester[]) {
+  // Intentionally disabled: do not persist data between refreshes.
 }
