@@ -92,25 +92,14 @@ const Index = () => {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   };
 
-  const getImportFileType = async (file: File): Promise<"pdf" | "aspx" | "image" | null> => {
+  const getImportFileType = async (file: File): Promise<"pdf" | "image" | null> => {
     const name = file.name.toLowerCase();
 
-    // Some portals download transcript PDFs with .aspx extension.
-    // Detect by file signature to avoid parsing PDF bytes as text/HTML.
+    // Detect real PDFs by file signature even when extension is misleading.
     const header = await file.slice(0, 8).text();
     if (header.startsWith("%PDF-")) return "pdf";
 
     if (name.endsWith(".pdf") || file.type === "application/pdf") return "pdf";
-    if (
-      name.endsWith(".aspx") ||
-      name.endsWith(".html") ||
-      name.endsWith(".htm") ||
-      file.type.includes("html") ||
-      file.type.includes("xml") ||
-      file.type.includes("text")
-    ) {
-      return "aspx";
-    }
     if (file.type.startsWith("image/")) return "image";
     return null;
   };
@@ -121,33 +110,28 @@ const Index = () => {
 
     const fileTypes = await Promise.all(files.map((file) => getImportFileType(file)));
     if (fileTypes.some((type) => !type)) {
-      toast.error("Please upload PDF, ASPX/HTML, or scanned image files.");
+      toast.error("Please upload PDF or scanned image files only.");
       event.target.value = "";
       return;
     }
 
-    const types = fileTypes as Array<"pdf" | "aspx" | "image">;
+    const types = fileTypes as Array<"pdf" | "image">;
     const hasNonImage = types.some((type) => type !== "image");
     if (files.length > 1 && hasNonImage) {
-      toast.error("For PDF/ASPX, upload only one file. Multiple upload is allowed only for images/PNG.");
+      toast.error("For PDF, upload only one file. Multiple upload is allowed only for images.");
       event.target.value = "";
       return;
     }
 
     try {
       setIsImporting(true);
-      const { extractImportDataFromAspx, extractImportDataFromPdf, extractImportDataFromScannedImage } = await loadPdfImportModule();
+      const { extractImportDataFromPdf, extractImportDataFromScannedImage } = await loadPdfImportModule();
       let parsedSemesters: Semester[] = [];
       let detectedStudentName = "";
       let detectedRegistrationNo = "";
 
       if (types[0] === "pdf") {
         const imported = await extractImportDataFromPdf(files[0]);
-        parsedSemesters = imported.semesters;
-        detectedStudentName = imported.studentDetails.studentName || "";
-        detectedRegistrationNo = imported.studentDetails.registrationNo || "";
-      } else if (types[0] === "aspx") {
-        const imported = await extractImportDataFromAspx(files[0]);
         parsedSemesters = imported.semesters;
         detectedStudentName = imported.studentDetails.studentName || "";
         detectedRegistrationNo = imported.studentDetails.registrationNo || "";
@@ -418,7 +402,7 @@ const Index = () => {
               <Sparkles className="h-3.5 w-3.5" /> Smart Import
             </p>
             <h3 className="mt-3 text-lg font-semibold">Start from transcript</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Upload PDF, ASPX/HTML, or scanned image documents to auto-fill semesters.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Upload PDF or scanned image documents to auto-fill semesters.</p>
             <Button variant="secondary" onClick={openFilePicker} disabled={isImporting} className="mt-4 h-11 w-full rounded-xl">
               <FileUp className="h-4 w-4 mr-2" /> {isImporting ? "Importing..." : "Import Document"}
             </Button>
@@ -454,14 +438,14 @@ const Index = () => {
             <li>Select <span className="font-medium text-foreground">Certificate Request</span>.</li>
             <li>Go to <span className="font-medium text-foreground">Download Certificates</span>.</li>
             <li>Download <span className="font-medium text-foreground">Provisional Academic Transcript</span>.</li>
-            <li>Upload the downloaded file (PDF, ASPX/HTML, or scanned image) on this website, or manually fill in your semester details.</li>
+            <li>Upload the downloaded file (PDF or scanned image) on this website, or manually fill in your semester details.</li>
           </ol>
         </section>
 
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf,.pdf,.aspx,.html,.htm,image/*,.png,.jpg,.jpeg,.webp"
+          accept="application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.webp"
           multiple
           className="hidden"
           onChange={handlePdfUpload}
