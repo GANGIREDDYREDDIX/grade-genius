@@ -1,16 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-
-// Supabase configuration via Vite environment variables
-// Set in .env.local for local dev and in Netlify environment variables for production.
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? '').trim();
-const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error('Missing Supabase environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
-}
-
-// Initialize Supabase client
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const NO_STORAGE_MODE = true;
 
 export interface FeedbackData {
   rating: number;
@@ -24,7 +12,7 @@ export interface FeedbackData {
 const ALLOWED_CATEGORIES = new Set<FeedbackData['category']>(['bug', 'feature', 'general', 'performance', 'ui']);
 const EMAIL_REGEX = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
 
-// Submit feedback to Supabase
+// Submit feedback without storing data (validation only)
 export const submitFeedback = async (feedback: Omit<FeedbackData, 'timestamp' | 'userAgent'>) => {
   try {
     const rating = Number(feedback.rating);
@@ -56,19 +44,18 @@ export const submitFeedback = async (feedback: Omit<FeedbackData, 'timestamp' | 
       timestamp: new Date().toISOString(),
       user_agent: navigator.userAgent,
     };
-    
-    console.log('Submitting feedback:', data);
-    
-    const { error } = await supabase
-      .from('feedback')
-      .insert([data]);
-    
-    if (error) {
-      console.error('Supabase error:', error);
-      throw new Error(error.message || 'Failed to submit feedback');
+
+    if (!NO_STORAGE_MODE) {
+      throw new Error('Storage mode is enabled unexpectedly.');
     }
-    
-    console.log('Feedback submitted successfully');
+
+    // Intentionally do not persist or transmit user feedback in no-storage mode.
+    console.log('Feedback received in no-storage mode:', {
+      ...data,
+      message: `[${message.length} chars]`,
+      email: email ? '[provided]' : null,
+    });
+
     return { success: true };
   } catch (error) {
     console.error('Error submitting feedback:', error);
@@ -76,4 +63,4 @@ export const submitFeedback = async (feedback: Omit<FeedbackData, 'timestamp' | 
   }
 };
 
-export default supabase;
+export default null;

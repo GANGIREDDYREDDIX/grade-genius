@@ -1,10 +1,21 @@
-import * as pdfjsLib from "pdfjs-dist";
 import { GRADES, Semester, Subject } from "@/lib/gpa";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+type PdfJsModule = typeof import("pdfjs-dist");
+let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
+
+async function getPdfJsModule(): Promise<PdfJsModule> {
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = import("pdfjs-dist").then((pdfjsLib) => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        "pdfjs-dist/build/pdf.worker.min.mjs",
+        import.meta.url,
+      ).toString();
+      return pdfjsLib;
+    });
+  }
+
+  return pdfJsModulePromise;
+}
 
 const GRADE_SET = new Set(GRADES.map((grade) => grade.toUpperCase()));
 const TERM_HEADER_REGEX = /term\s*:\s*([ivxlcdm]+|\d{1,2})/i;
@@ -156,7 +167,7 @@ function parseSubjectFromLine(line: string): Subject | null {
   };
 }
 
-function getLinesFromEol(content: pdfjsLib.TextContent): string[] {
+function getLinesFromEol(content: { items: Array<{ str?: string; hasEOL?: boolean }> }): string[] {
   let text = "";
 
   for (const item of content.items) {
@@ -357,6 +368,7 @@ async function extractLinesFromPdf(file: File): Promise<string[]> {
 }
 
 async function extractPageLinesFromPdf(file: File): Promise<string[][]> {
+  const pdfjsLib = await getPdfJsModule();
   const data = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data });
   const pdf = await loadingTask.promise;
@@ -367,7 +379,7 @@ async function extractPageLinesFromPdf(file: File): Promise<string[][]> {
     const page = await pdf.getPage(pageIndex);
     const content = await page.getTextContent();
     const positionedItems = content.items
-      .filter((item): item is pdfjsLib.TextItem => "str" in item)
+      .filter((item): item is { str: string; transform: number[] } => "str" in item)
       .map((item) => ({
         text: item.str,
         x: item.transform[4],

@@ -1,40 +1,38 @@
-import { ChangeEvent, useState, useEffect, useRef } from "react";
+import { ChangeEvent, useEffect, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CGPADisplay from "@/components/CGPADisplay";
 import SemesterCard from "@/components/SemesterCard";
 import { FeedbackModal } from "@/components/FeedbackModal";
-import { calculateCGPA, calculateTGPA, GRADE_MAP, Semester, createSemester, loadSemesters, saveSemesters } from "@/lib/gpa";
-import { extractImportDataFromAspx, extractImportDataFromPdf, extractImportDataFromScannedImage } from "@/lib/pdfImport";
-import { FileSpreadsheet, FileText, FileUp, Plus, Save, Sparkles, Rocket, Wand2, UserPlus } from "lucide-react";
+import { calculateCGPA, calculateTGPA, GRADE_MAP, Semester, createSemester } from "@/lib/gpa";
+import { FileSpreadsheet, FileText, FileUp, Plus, Sparkles, Rocket, Wand2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
-import { useNavigate } from "react-router-dom";
 
-const SNAPSHOT_KEY = "gpa-calculator-snapshot";
-const SNAPSHOT_HISTORY_KEY = "gpa-calculator-snapshot-history";
+type PdfImportModule = typeof import("@/lib/pdfImport");
+let pdfImportModulePromise: Promise<PdfImportModule> | null = null;
 
-interface SavedSnapshotRecord {
-  id: string;
-  savedAt: string;
-  studentName?: string;
-  registrationNo?: string;
-  semesters: Semester[];
-}
+const loadPdfImportModule = async () => {
+  if (!pdfImportModulePromise) {
+    pdfImportModulePromise = import("@/lib/pdfImport");
+  }
+  return pdfImportModulePromise;
+};
 
 const Index = () => {
-  const [semesters, setSemesters] = useState<Semester[]>(loadSemesters);
+  const [semesters, setSemesters] = useState<Semester[]>([createSemester(1)]);
   const [isImporting, setIsImporting] = useState(false);
   const [studentName, setStudentName] = useState("");
   const [registrationNo, setRegistrationNo] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
-    saveSemesters(semesters);
-  }, [semesters]);
+    try {
+      localStorage.removeItem("gpa-calculator-snapshot");
+      localStorage.removeItem("gpa-calculator-snapshot-history");
+    } catch {
+      // ignore localStorage errors
+    }
+  }, []);
 
   const updateSemester = (index: number, updated: Semester) => {
     const next = [...semesters];
@@ -138,6 +136,7 @@ const Index = () => {
 
     try {
       setIsImporting(true);
+      const { extractImportDataFromAspx, extractImportDataFromPdf, extractImportDataFromScannedImage } = await loadPdfImportModule();
       let parsedSemesters: Semester[] = [];
       let detectedStudentName = "";
       let detectedRegistrationNo = "";
@@ -187,36 +186,7 @@ const Index = () => {
     }
   };
 
-  const saveSnapshot = () => {
-    try {
-      const record: SavedSnapshotRecord = {
-        id: crypto.randomUUID(),
-        savedAt: new Date().toISOString(),
-        studentName: studentName.trim() || undefined,
-        registrationNo: registrationNo.trim() || undefined,
-        semesters,
-      };
-
-      const rawHistory = localStorage.getItem(SNAPSHOT_HISTORY_KEY);
-      const parsedHistory = rawHistory ? (JSON.parse(rawHistory) as SavedSnapshotRecord[]) : [];
-      const safeHistory = Array.isArray(parsedHistory) ? parsedHistory : [];
-      const nextHistory = [record, ...safeHistory].slice(0, 50);
-
-      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(semesters));
-      localStorage.setItem(SNAPSHOT_HISTORY_KEY, JSON.stringify(nextHistory));
-      toast.success("Progress saved locally.");
-      navigate("/saved-details");
-    } catch {
-      toast.error("Unable to save right now.");
-    }
-  };
-
   const startForNewStudent = () => {
-    try {
-      localStorage.removeItem(SNAPSHOT_KEY);
-    } catch {
-      // ignore localStorage errors
-    }
     setSemesters([createSemester(1)]);
     setStudentName("");
     setRegistrationNo("");
@@ -224,7 +194,8 @@ const Index = () => {
   };
 
   const downloadExcel = () => {
-    try {
+    const createWorkbook = async () => {
+      const XLSX = await import("xlsx");
       const rows: Array<Record<string, string | number>> = [];
 
       semesters.forEach((semester) => {
@@ -304,14 +275,21 @@ const Index = () => {
 
       const timestamp = new Date().toISOString().slice(0, 10);
       XLSX.writeFile(workbook, `lpu-cgpa-data-${timestamp}.xlsx`);
-      toast.success("Excel download started.");
-    } catch {
-      toast.error("Unable to download Excel file.");
-    }
+    };
+
+    void createWorkbook()
+      .then(() => {
+        toast.success("Excel download started.");
+      })
+      .catch(() => {
+        toast.error("Unable to download Excel file.");
+      });
   };
 
   const downloadPdf = () => {
-    try {
+    const createPdf = async () => {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
+
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const margin = 40;
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -415,10 +393,15 @@ const Index = () => {
 
       const timestamp = new Date().toISOString().slice(0, 10);
       doc.save(`lpu-cgpa-report-${timestamp}.pdf`);
-      toast.success("PDF download started.");
-    } catch {
-      toast.error("Unable to download PDF file.");
-    }
+    };
+
+    void createPdf()
+      .then(() => {
+        toast.success("PDF download started.");
+      })
+      .catch(() => {
+        toast.error("Unable to download PDF file.");
+      });
   };
 
   return (
@@ -507,9 +490,6 @@ const Index = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <Button variant="default" size="sm" onClick={startForNewStudent} className="rounded-lg">
                 <UserPlus className="h-4 w-4 mr-1.5" /> New Student
-              </Button>
-              <Button variant="outline" size="sm" onClick={saveSnapshot} className="rounded-lg">
-                <Save className="h-4 w-4 mr-1.5" /> Save
               </Button>
               <Button variant="secondary" size="sm" onClick={downloadPdf} className="rounded-lg">
                 <FileText className="h-4 w-4 mr-1.5" /> PDF
