@@ -196,7 +196,11 @@ const Index = () => {
         });
       });
 
-      const summary = semesters.map((semester) => {
+      const summary: Array<{
+        Semester: string;
+        TGPA: string | number;
+        Credits: string | number;
+      }> = semesters.map((semester) => {
         const { tgpa, totalCredits, valid } = calculateTGPA(semester.subjects);
         return {
           Semester: semester.name,
@@ -303,7 +307,7 @@ const Index = () => {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.text(`Generated: ${new Date().toLocaleString()}`, margin, 70);
-      doc.text("Created by Vishnu Vardha Reddy Gangireddy", pageWidth - margin, 70, { align: "right" });
+      doc.text("Created by Gangireddy Vishnu Vardha Reddy", pageWidth - margin, 70, { align: "right" });
       doc.text(`Student: ${safeStudentName}`, margin, 84);
       doc.text(`Registration No: ${safeRegistrationNo}`, margin, 96);
 
@@ -328,7 +332,7 @@ const Index = () => {
       });
 
       semesters.forEach((semester, index) => {
-        const previousY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 120;
+        const previousY = (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 120;
         let startY = previousY + 22;
         const { tgpa, totalCredits: semCredits, valid: semValid } = calculateTGPA(semester.subjects);
 
@@ -499,7 +503,7 @@ const Index = () => {
 
         <footer className="pt-5 pb-2 text-center px-2 md:px-4">
           <p className="text-xs md:text-sm text-muted-foreground leading-relaxed">
-            Created by Vishnu Vardha Reddy Gangireddy • For LPU students only
+            Created by Gangireddy Vishnu Vardha Reddy  • For LPU students only
           </p>
           <p className="mt-2 text-[11px] md:text-xs text-muted-foreground/90 max-w-4xl mx-auto leading-relaxed">
             Disclaimer: This project is an independent unofficial tool and is not affiliated with, endorsed by, or operated by Lovely Professional University (LPU). Please verify all results with official university records.
