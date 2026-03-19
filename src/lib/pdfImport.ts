@@ -204,17 +204,17 @@ function parseSubjectFromLine(line: string): Subject | null {
   };
 }
 
-function getLinesFromEol(content: { items: Array<{ str?: string; hasEOL?: boolean }> }): string[] {
+function getLinesFromEol(content: { items: Array<unknown> }): string[] {
   let text = "";
 
   for (const item of content.items) {
-    if (!("str" in item)) continue;
-    const chunk = item.str?.trim();
+    if (!item || typeof item !== "object" || !(("str" in item) && typeof (item as { str?: unknown }).str === "string")) continue;
+    const chunk = (item as { str: string }).str.trim();
     if (chunk) {
       text += `${chunk} `;
     }
 
-    if ("hasEOL" in item && item.hasEOL) {
+    if ("hasEOL" in item && Boolean((item as { hasEOL?: unknown }).hasEOL)) {
       text += "\n";
     }
   }
@@ -523,6 +523,254 @@ function buildSemestersFromLines(lines: string[]): Semester[] {
     }));
 }
 
+function extractStandaloneGradeToken(line: string): string | null {
+  const symbolOnly = line.trim();
+  if (symbolOnly) {
+    if (/^[|!Il1]$/.test(symbolOnly)) return "I";
+    if (/^[0Oo°º●○◯]$/.test(symbolOnly)) return "O";
+  }
+
+  const cleaned = line.replace(/[()\[\]{}|,;:]/g, " ").trim().toUpperCase();
+  if (!cleaned) return null;
+
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  for (const token of tokens) {
+    const normalized = normalizeOcrGradeToken(token);
+    if (normalized) return normalized;
+  }
+
+  const compact = cleaned.replace(/\s+/g, "");
+  const compactNormalized = normalizeOcrGradeToken(compact);
+  if (compactNormalized) return compactNormalized;
+
+  return null;
+}
+
+function normalizeOcrGradeToken(raw: string): string | null {
+  const symbolOnly = raw.trim();
+  if (symbolOnly) {
+    if (/^[|!Il1]$/.test(symbolOnly)) return "I";
+    if (/^[0Oo°º●○◯]$/.test(symbolOnly)) return "O";
+  }
+
+  const token = normalizeToken(raw).replace(/[^A-Z0-9+]/g, "");
+  if (!token) return null;
+
+  if (GRADE_SET.has(token)) return token;
+
+  // Common OCR confusions.
+  if (token === "0") return "O";
+  if (token === "OO" || token === "00") return "O";
+  if (token === "Q") return "O";
+
+  if (token === "1" || token === "L" || token === "IL" || token === "LI") return "I";
+  if (token === "AS" || token === "A5") return "A+";
+  if (token === "B5") return "B+";
+
+  return null;
+}
+
+function splitTitleAndTrailingGrade(rawTitle: string): { title: string; grade: string | null } {
+  const cleaned = rawTitle.replace(/\s+/g, " ").trim();
+  if (!cleaned) return { title: "", grade: null };
+
+  // Try to read a trailing grade token that OCR often appends to title,
+  // e.g. "VERBAL ABILITY A+" or "TRAINING IN PROGRAMMING c".
+  const trailingMatch = cleaned.match(/([A-Za-z0-9+|!°º●○◯]{1,3})\s*$/);
+  if (!trailingMatch?.[1]) {
+    return { title: cleaned, grade: null };
+  }
+
+  const candidate = trailingMatch[1];
+  const grade = normalizeOcrGradeToken(candidate);
+  if (!grade) {
+    return { title: cleaned, grade: null };
+  }
+
+  const title = cleaned.slice(0, trailingMatch.index).replace(/[\s\-:|]+$/, "").trim();
+  if (!title) {
+    return { title: cleaned, grade: null };
+  }
+
+  return { title, grade };
+}
+
+function alignStandaloneGradesToSubjects(subjects: Subject[], gradeTokens: string[]): Subject[] {
+  if (subjects.length === 0 || gradeTokens.length < subjects.length) {
+    return subjects;
+  }
+
+  let bestStart = 0;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  // Find a window of grade tokens that best matches already-detected grades.
+  for (let start = 0; start <= gradeTokens.length - subjects.length; start++) {
+    let score = 0;
+
+    for (let i = 0; i < subjects.length; i++) {
+      const subjectGrade = subjects[i].grade;
+      const tokenGrade = gradeTokens[start + i];
+
+      if (subjectGrade) {
+        if (subjectGrade === tokenGrade) {
+          score += 3;
+        } else {
+          score -= 2;
+        }
+      }
+    }
+
+    // Prefer windows with valid grades and minimal shifting.
+    score -= start * 0.01;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestStart = start;
+    }
+  }
+
+  const aligned = gradeTokens.slice(bestStart, bestStart + subjects.length);
+  const anchoredCount = subjects.filter((s) => Boolean(s.grade)).length;
+  const matchedAnchors = subjects.reduce((count, subject, idx) => {
+    if (!subject.grade) return count;
+    return count + (subject.grade === aligned[idx] ? 1 : 0);
+  }, 0);
+
+  // Safety: only apply alignment if anchors are consistent enough.
+  if (anchoredCount > 0 && matchedAnchors < Math.max(1, Math.floor(anchoredCount * 0.5))) {
+    return subjects;
+  }
+
+  return subjects.map((subject, idx) => {
+    if (subject.grade) return subject;
+    return {
+      ...subject,
+      grade: aligned[idx] ?? "",
+    };
+  });
+}
+
+function extractSubjectHeaderFromOcrLine(line: string): { code: string; title: string } | null {
+  // Handles common OCR variations for term-card rows:
+  // CSC301::TITLE, CSC301 :: TITLE, CSC301 : : TITLE, CSC 301::TITLE
+  const headerRegex = /\b([A-Z]{2,6}\s*\d{2,4}[A-Z]?)\s*[:;|]\s*[:;|]?\s*(.+)$/i;
+  const match = line.match(headerRegex);
+  if (!match?.[1] || !match[2]) return null;
+
+  const code = match[1].replace(/\s+/g, "").toUpperCase();
+
+  // Strip trailing action text that often appears in screenshots.
+  const cleanedTitle = match[2]
+    .replace(/\bcredit\b[\s\S]*$/i, "")
+    .replace(/\bview\s*detail\b[\s\S]*$/i, "")
+    .replace(/\bview\s*chances\b[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleanedTitle) return null;
+
+  return { code, title: cleanedTitle };
+}
+
+function extractSemestersFromOcrTermCardText(text: string): Semester[] {
+  const lines = text
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return [];
+
+  const termMatch = lines.slice(0, 40).join(" ").match(TERM_HEADER_REGEX);
+  const termNumber = termMatch ? parseTermNumber(termMatch[1]) : null;
+  const semesterName = `Semester ${termNumber ?? 1}`;
+
+  const subjects: Subject[] = [];
+  const creditRegex = /credit\s*[-:]?\s*(\d+(?:\.\d+)?)/i;
+  const standaloneGradeTokens: string[] = [];
+
+  let current: Subject | null = null;
+
+  for (const line of lines) {
+    const isolatedGrade = extractStandaloneGradeToken(line);
+    if (isolatedGrade) {
+      standaloneGradeTokens.push(isolatedGrade);
+    }
+
+    const header = extractSubjectHeaderFromOcrLine(line);
+    if (header) {
+      const { code, title } = header;
+      const { title: cleanTitle, grade: inlineTitleGrade } = splitTitleAndTrailingGrade(title);
+      const name = normalizeSubjectName(`${code} :: ${cleanTitle}`);
+      if (!isLikelySubjectName(name)) {
+        current = null;
+        continue;
+      }
+
+      current = {
+        id: crypto.randomUUID(),
+        name,
+        credits: "",
+        grade: "",
+      };
+
+      if (inlineTitleGrade) {
+        current.grade = inlineTitleGrade;
+      }
+
+      subjects.push(current);
+
+      const inlineCreditMatch = line.match(creditRegex);
+      if (inlineCreditMatch?.[1]) {
+        const credit = Number(inlineCreditMatch[1]);
+        if (!Number.isNaN(credit) && credit > 0 && credit <= 30) {
+          current.credits = inlineCreditMatch[1];
+        }
+      }
+
+      continue;
+    }
+
+    if (current && !current.credits) {
+      const creditMatch = line.match(creditRegex);
+      if (creditMatch?.[1]) {
+        const credit = Number(creditMatch[1]);
+        if (!Number.isNaN(credit) && credit > 0 && credit <= 30) {
+          current.credits = creditMatch[1];
+        }
+      }
+    }
+
+    if (current && !current.grade) {
+      const nearbyGrade = extractStandaloneGradeToken(line);
+      if (nearbyGrade) {
+        current.grade = nearbyGrade;
+      }
+    }
+  }
+
+  const subjectsWithAlignedGrades = alignStandaloneGradesToSubjects(subjects, standaloneGradeTokens);
+
+  const validSubjects = subjectsWithAlignedGrades.filter((subject) => {
+    const credits = Number(subject.credits);
+    return (
+      isLikelySubjectName(subject.name) &&
+      !Number.isNaN(credits) &&
+      credits > 0 &&
+      credits <= 30
+    );
+  });
+
+  if (validSubjects.length === 0) return [];
+
+  return [
+    {
+      id: crypto.randomUUID(),
+      name: semesterName,
+      subjects: validSubjects,
+    },
+  ];
+}
+
 export function extractSemestersFromText(text: string): Semester[] {
   const normalizedLines = text
     .split(/\r?\n+/)
@@ -553,13 +801,17 @@ async function extractPageLinesFromPdf(file: File): Promise<string[][]> {
   for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex++) {
     const page = await pdf.getPage(pageIndex);
     const content = await page.getTextContent();
-    const positionedItems = content.items
-      .filter((item): item is { str: string; transform: number[] } => "str" in item)
-      .map((item) => ({
-        text: item.str,
-        x: item.transform[4],
-        y: item.transform[5],
-      }));
+    const positionedItems: PositionedText[] = [];
+    for (const item of content.items) {
+      if (!item || typeof item !== "object") continue;
+      const maybe = item as { str?: unknown; transform?: unknown };
+      if (typeof maybe.str !== "string" || !Array.isArray(maybe.transform) || maybe.transform.length < 6) continue;
+      positionedItems.push({
+        text: maybe.str,
+        x: Number(maybe.transform[4]),
+        y: Number(maybe.transform[5]),
+      });
+    }
 
     const coordinateLines = getLinesFromPage(positionedItems);
     const eolLines = getLinesFromEol(content);
@@ -744,12 +996,29 @@ export async function extractImportDataFromAspx(file: File): Promise<ParsedImpor
 
 export async function extractSemestersFromScannedImage(file: File): Promise<Semester[]> {
   const text = await extractTextFromScannedImage(file);
-  return extractSemestersFromText(text);
+  try {
+    return extractSemestersFromText(text);
+  } catch {
+    const ocrSemesters = extractSemestersFromOcrTermCardText(text);
+    if (ocrSemesters.length > 0) {
+      return ocrSemesters;
+    }
+    throw new Error("No subjects with credits and grades could be extracted from this image.");
+  }
 }
 
 export async function extractImportDataFromScannedImage(file: File): Promise<ParsedImportData> {
   const text = await extractTextFromScannedImage(file);
-  const semesters = extractSemestersFromText(text);
+  let semesters: Semester[];
+  try {
+    semesters = extractSemestersFromText(text);
+  } catch {
+    const ocrSemesters = extractSemestersFromOcrTermCardText(text);
+    if (ocrSemesters.length === 0) {
+      throw new Error("No subjects with credits and grades could be extracted from this image.");
+    }
+    semesters = ocrSemesters;
+  }
   const studentDetails = extractStudentDetailsFromText(text);
   return { semesters, studentDetails };
 }
