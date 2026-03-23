@@ -6,6 +6,7 @@ export const GRADE_MAP: Record<string, number | null> = {
   "B": 6,
   "C": 5,
   "D": 4,
+  "G": 0,
   "E": 0,
   "F": 0,
   "I": null,
