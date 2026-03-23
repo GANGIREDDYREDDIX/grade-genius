@@ -650,6 +650,144 @@ function alignStandaloneGradesToSubjects(subjects: Subject[], gradeTokens: strin
   });
 }
 
+function extractCreditFromLine(line: string): string | null {
+  const matches = line.match(/\b\d+(?:\.\d+)?\b/g);
+  if (!matches) return null;
+
+  for (const raw of matches) {
+    const value = Number(raw);
+    if (!Number.isNaN(value) && value > 0 && value <= 30) {
+      return raw;
+    }
+  }
+
+  return null;
+}
+
+function extractSemestersFromLooseTranscriptLines(lines: string[]): Semester[] {
+  const semesterMap = new Map<string, Semester>();
+  const seenBySemester = new Map<string, Set<string>>();
+  let activeSemesterName = "Semester 1";
+  let pending: Subject | null = null;
+
+  const ensureSemester = (name: string): Semester => {
+    const existing = semesterMap.get(name);
+    if (existing) return existing;
+
+    const created: Semester = {
+      id: crypto.randomUUID(),
+      name,
+      subjects: [],
+    };
+
+    semesterMap.set(name, created);
+    seenBySemester.set(name, new Set());
+    return created;
+  };
+
+  const commitPending = () => {
+    if (!pending) return;
+    const creditsNumber = Number(pending.credits);
+    if (!pending.name || !pending.grade || Number.isNaN(creditsNumber) || creditsNumber <= 0 || creditsNumber > 30) {
+      pending = null;
+      return;
+    }
+
+    const semester = ensureSemester(activeSemesterName);
+    const dedupeKey = `${pending.name}|${pending.credits}|${pending.grade}`;
+    const seen = seenBySemester.get(activeSemesterName);
+    if (!seen?.has(dedupeKey)) {
+      semester.subjects.push(pending);
+      seen?.add(dedupeKey);
+    }
+    pending = null;
+  };
+
+  ensureSemester(activeSemesterName);
+
+  const subjectHeaderRegex = /\b([A-Z]{2,6}\d{2,4}[A-Z]?)\s*::?\s*(.+)$/i;
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+/g, " ").trim();
+    if (!line) continue;
+
+    const termMatch = line.match(TERM_HEADER_REGEX);
+    if (termMatch) {
+      commitPending();
+      const termNumber = parseTermNumber(termMatch[1]);
+      activeSemesterName = `Semester ${termNumber ?? semesterMap.size + 1}`;
+      ensureSemester(activeSemesterName);
+      continue;
+    }
+
+    // First try strict row parsing.
+    const strict = parseSubjectFromLine(line);
+    if (strict) {
+      commitPending();
+      pending = strict;
+      commitPending();
+      continue;
+    }
+
+    const headerMatch = line.match(subjectHeaderRegex);
+    if (headerMatch) {
+      commitPending();
+      const [, code, titleRaw] = headerMatch;
+      const title = titleRaw
+        .replace(/\bview\s*detail\b[\s\S]*$/i, "")
+        .replace(/\bview\s*chances\b[\s\S]*$/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const name = normalizeSubjectName(`${code} :: ${title}`);
+      if (!isLikelySubjectName(name)) {
+        pending = null;
+        continue;
+      }
+
+      pending = {
+        id: crypto.randomUUID(),
+        name,
+        credits: "",
+        grade: "",
+      };
+
+      const inlineCredit = extractCreditFromLine(line);
+      if (inlineCredit) pending.credits = inlineCredit;
+
+      const inlineGrade = extractStandaloneGradeToken(line);
+      if (inlineGrade) pending.grade = inlineGrade;
+
+      if (pending.credits && pending.grade) {
+        commitPending();
+      }
+      continue;
+    }
+
+    if (!pending) continue;
+
+    if (!pending.credits) {
+      const credit = extractCreditFromLine(line);
+      if (credit) pending.credits = credit;
+    }
+
+    if (!pending.grade) {
+      const grade = extractStandaloneGradeToken(line);
+      if (grade) pending.grade = grade;
+    }
+
+    if (pending.credits && pending.grade) {
+      commitPending();
+    }
+  }
+
+  commitPending();
+
+  return [...semesterMap.values()]
+    .filter((semester) => semester.subjects.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
 function extractSubjectHeaderFromOcrLine(line: string): { code: string; title: string } | null {
   // Handles common OCR variations for term-card rows:
   // CSC301::TITLE, CSC301 :: TITLE, CSC301 : : TITLE, CSC 301::TITLE
@@ -879,7 +1017,8 @@ async function extractTextFromScannedImage(file: File): Promise<string> {
 export async function extractImportDataFromPdf(file: File): Promise<ParsedImportData> {
   const pageLineSets = await extractPageLinesFromPdf(file);
   const lines = pageLineSets.flat();
-  const semesters = buildSemestersFromLines(lines);
+  const strictSemesters = buildSemestersFromLines(lines);
+  const semesters = strictSemesters.length > 0 ? strictSemesters : extractSemestersFromLooseTranscriptLines(lines);
 
   if (semesters.length === 0) {
     throw new Error("No subjects with credits and grades could be extracted from this PDF.");
@@ -1026,7 +1165,8 @@ export async function extractImportDataFromScannedImage(file: File): Promise<Par
 export async function extractSemestersFromPdf(file: File): Promise<Semester[]> {
   const allLines = await extractLinesFromPdf(file);
 
-  const semesters = buildSemestersFromLines(allLines);
+  const strictSemesters = buildSemestersFromLines(allLines);
+  const semesters = strictSemesters.length > 0 ? strictSemesters : extractSemestersFromLooseTranscriptLines(allLines);
 
   if (semesters.length === 0) {
     throw new Error("No subjects with credits and grades could be extracted from this PDF.");
