@@ -4,12 +4,33 @@ import { BarChart3, GraduationCap, Layers3, Sigma } from "lucide-react";
 
 interface CGPADisplayProps {
   semesters: Semester[];
+  baselineSemesters?: Semester[];
 }
 
-const CGPADisplay = ({ semesters }: CGPADisplayProps) => {
+const CGPADisplay = ({ semesters, baselineSemesters = [] }: CGPADisplayProps) => {
   const { cgpa, totalCredits, valid } = calculateCGPA(semesters);
+  const { cgpa: baselineCgpa, valid: baselineValid } = calculateCGPA(baselineSemesters);
   const activeSemesters = semesters.filter((semester) => calculateTGPA(semester.subjects).valid).length;
   const completion = semesters.length ? Math.round((activeSemesters / semesters.length) * 100) : 0;
+
+  const baselineGradeBySubjectId = new Map<string, string>();
+  for (const semester of baselineSemesters) {
+    for (const subject of semester.subjects) {
+      baselineGradeBySubjectId.set(subject.id, subject.grade);
+    }
+  }
+
+  let changedGradeCount = 0;
+  for (const semester of semesters) {
+    for (const subject of semester.subjects) {
+      const baselineGrade = baselineGradeBySubjectId.get(subject.id);
+      if (baselineGrade !== undefined && baselineGrade !== subject.grade) {
+        changedGradeCount += 1;
+      }
+    }
+  }
+
+  const showActualVsNewCgpa = baselineValid && valid && changedGradeCount > 0;
 
   return (
     <header className="relative z-20">
@@ -46,6 +67,11 @@ const CGPADisplay = ({ semesters }: CGPADisplayProps) => {
             <div className="rounded-2xl border border-primary/30 bg-primary/10 p-3">
               <div className="flex items-center gap-2 text-xs text-primary/80"><GraduationCap className="h-3.5 w-3.5" /> CGPA</div>
               <div className="mt-1 text-xl font-bold text-primary">{valid ? cgpa.toFixed(2) : "--"}</div>
+              {showActualVsNewCgpa && (
+                <p className="mt-1 text-[11px] leading-tight text-primary/85">
+                  Actual: <span className="font-semibold">{baselineCgpa.toFixed(2)}</span> → New: <span className="font-semibold">{cgpa.toFixed(2)}</span>
+                </p>
+              )}
             </div>
           </div>
 

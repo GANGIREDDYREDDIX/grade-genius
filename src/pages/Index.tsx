@@ -19,11 +19,19 @@ const loadPdfImportModule = async () => {
 };
 
 const Index = () => {
-  const [semesters, setSemesters] = useState<Semester[]>([createSemester(1)]);
+  const createInitialSemesters = () => [createSemester(1)];
+  const [semesters, setSemesters] = useState<Semester[]>(createInitialSemesters);
+  const [baselineSemesters, setBaselineSemesters] = useState<Semester[]>(createInitialSemesters);
   const [isImporting, setIsImporting] = useState(false);
   const [studentName, setStudentName] = useState("");
   const [registrationNo, setRegistrationNo] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const cloneSemesters = (items: Semester[]): Semester[] =>
+    items.map((semester) => ({
+      ...semester,
+      subjects: semester.subjects.map((subject) => ({ ...subject })),
+    }));
 
   useEffect(() => {
     try {
@@ -149,7 +157,8 @@ const Index = () => {
         }
       }
 
-      setSemesters(parsedSemesters);
+      setSemesters(cloneSemesters(parsedSemesters));
+      setBaselineSemesters(cloneSemesters(parsedSemesters));
       if (detectedStudentName) setStudentName(detectedStudentName);
       if (detectedRegistrationNo) setRegistrationNo(detectedRegistrationNo);
 
@@ -171,7 +180,9 @@ const Index = () => {
   };
 
   const startForNewStudent = () => {
-    setSemesters([createSemester(1)]);
+    const freshSemesters = [createSemester(1)];
+    setSemesters(cloneSemesters(freshSemesters));
+    setBaselineSemesters(cloneSemesters(freshSemesters));
     setStudentName("");
     setRegistrationNo("");
     toast.success("Ready for new student.");
@@ -392,13 +403,36 @@ const Index = () => {
       });
   };
 
+  const { cgpa, valid: cgpaValid } = calculateCGPA(semesters);
+  const { cgpa: baselineCgpa, valid: baselineCgpaValid } = calculateCGPA(baselineSemesters);
+
+  const baselineGradeBySubjectId = new Map<string, string>();
+  for (const semester of baselineSemesters) {
+    for (const subject of semester.subjects) {
+      baselineGradeBySubjectId.set(subject.id, subject.grade);
+    }
+  }
+
+  let changedGradeCount = 0;
+  for (const semester of semesters) {
+    for (const subject of semester.subjects) {
+      const baselineGrade = baselineGradeBySubjectId.get(subject.id);
+      if (baselineGrade !== undefined && baselineGrade !== subject.grade) {
+        changedGradeCount += 1;
+      }
+    }
+  }
+
+  const showCgpaDiff = cgpaValid && baselineCgpaValid && changedGradeCount > 0;
+  const cgpaDelta = showCgpaDiff ? cgpa - baselineCgpa : 0;
+
   return (
     <div className="min-h-screen bg-background relative overflow-x-hidden pb-10">
       <div className="pointer-events-none absolute -top-24 -left-16 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       <div className="pointer-events-none absolute top-44 -right-16 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl" />
       <FeedbackModal />
 
-      <CGPADisplay semesters={semesters} />
+      <CGPADisplay semesters={semesters} baselineSemesters={baselineSemesters} />
       <main className="relative max-w-6xl mx-auto px-4 py-6 md:py-8 space-y-6">
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <article className="animate-fade-up rounded-2xl border border-border/70 bg-card/80 p-5 shadow-[0_10px_32px_-24px_hsl(var(--primary))]">
@@ -510,6 +544,23 @@ const Index = () => {
           </p>
         </footer>
       </main>
+
+      <div className="fixed left-3 bottom-3 z-40 sm:left-4 sm:bottom-4">
+        <div className="rounded-xl border border-primary/30 bg-card/95 backdrop-blur px-3 py-2 shadow-[0_10px_30px_-18px_hsl(var(--primary))] min-w-[220px]">
+          <p className="text-[11px] font-medium text-primary/80">Overall CGPA</p>
+          <div className="text-lg font-bold text-primary leading-tight">{cgpaValid ? cgpa.toFixed(2) : "--"}</div>
+          {showCgpaDiff ? (
+            <p className="mt-1 text-[11px] leading-tight text-muted-foreground">
+              Actual: <span className="font-medium text-foreground/80">{baselineCgpa.toFixed(2)}</span> → New: <span className="font-medium text-primary">{cgpa.toFixed(2)}</span>
+              <span className={cgpaDelta >= 0 ? "text-emerald-600 ml-1" : "text-destructive ml-1"}>
+                ({cgpaDelta >= 0 ? "+" : ""}{cgpaDelta.toFixed(2)})
+              </span>
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-muted-foreground">Change any grade to see instant CGPA difference.</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
